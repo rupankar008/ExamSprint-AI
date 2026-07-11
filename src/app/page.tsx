@@ -77,44 +77,52 @@ export default function Home() {
     >
       <DynamicBackground theme={activeTheme as any} />
 
-      {/* TOP DESKTOP HEADER BAR */}
-      <header className="w-full max-w-6xl mx-auto px-4 py-4.5 flex justify-between items-center z-10 border-b border-white/5 bg-[#03050a]/40 backdrop-blur-md sticky top-0">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg overflow-hidden border border-white/10 shadow-md shadow-blue-500/10 flex items-center justify-center bg-slate-950">
-            <img src="/logo.jpg" alt="Logo" className="w-full h-full object-cover" />
+      {/* TOP HEADER BAR — Mobile-optimized 2-row design */}
+      <header className="w-full max-w-6xl mx-auto z-10 border-b border-white/5 bg-[#03050a]/60 backdrop-blur-md sticky top-0">
+        {/* Row 1: Logo + Actions */}
+        <div className="flex justify-between items-center px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg overflow-hidden border border-white/10 shadow-md shadow-blue-500/10 flex items-center justify-center bg-slate-950 shrink-0">
+              <img src="/logo.jpg" alt="Logo" className="w-full h-full object-cover" />
+            </div>
+            <div>
+              <span className="font-extrabold text-sm tracking-tight text-gradient">ExamSprint AI</span>
+              <span className="ml-1.5 text-[8px] bg-blue-500/10 text-blue-400 font-black border border-blue-500/20 px-1.5 py-0.5 rounded tracking-wide uppercase">LMS PRO</span>
+            </div>
           </div>
-          <span className="font-extrabold text-sm tracking-tight text-gradient">ExamSprint AI</span>
-          <span className="text-[8px] bg-blue-500/10 text-blue-400 font-black border border-blue-500/20 px-1.5 py-0.5 rounded tracking-wide uppercase">LMS PRO</span>
-        </div>
 
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1 text-orange-400 font-black text-xs" title="Daily solved streak">
-              <Flame size={14} fill="currentColor" />
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 text-orange-400 font-black text-xs bg-orange-500/10 px-2 py-1 rounded-lg border border-orange-500/20" title="Daily streak">
+              <Flame size={12} fill="currentColor" />
               <span>{profile.streakCount || 1}</span>
             </div>
-
-            <div className="hidden sm:flex items-center gap-2 text-xs" title="XP level progress">
-              <Award size={15} className="text-yellow-400" />
+            <div className="hidden sm:flex items-center gap-1.5 text-xs bg-white/5 border border-white/10 px-2 py-1 rounded-lg">
+              <Award size={13} className="text-yellow-400" />
               <span>Lv. {profile.level}</span>
-              <div className="w-20 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-gradient-to-r from-yellow-400 to-amber-500"
-                  style={{ width: `${profile.xp}%` }}
-                />
+              <div className="w-16 h-1 bg-white/10 rounded-full overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-yellow-400 to-amber-500" style={{ width: `${profile.xp}%` }} />
               </div>
             </div>
-
-            <span className="px-2.5 py-1 bg-white/5 border border-white/10 rounded-lg text-[10px] font-bold uppercase tracking-wider text-[var(--theme-text-primary)]">
-              {examConfig.name.split(' ')[0]}
-            </span>
-
             <button 
               onClick={() => setSettingsOpen(true)}
               className="p-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-[var(--theme-text-secondary)] hover:text-white transition-all cursor-pointer"
             >
               <Settings size={14} />
             </button>
+          </div>
+        </div>
+
+        {/* Row 2 (mobile only): Exam badge + XP bar */}
+        <div className="flex sm:hidden items-center justify-between px-4 pb-2 gap-3">
+          <span className="px-2.5 py-0.5 bg-white/5 border border-white/10 rounded-lg text-[10px] font-bold uppercase tracking-wider text-[var(--theme-text-primary)] shrink-0">
+            🎯 {examConfig.name.split(' ').slice(0, 2).join(' ')}
+          </span>
+          <div className="flex items-center gap-1.5 flex-1 max-w-[160px]">
+            <Award size={11} className="text-yellow-400 shrink-0" />
+            <span className="text-[10px] text-[var(--theme-text-secondary)] shrink-0">Lv.{profile.level}</span>
+            <div className="flex-1 h-1 bg-white/10 rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-yellow-400 to-amber-500" style={{ width: `${profile.xp}%` }} />
+            </div>
           </div>
         </div>
       </header>
@@ -144,29 +152,36 @@ export default function Home() {
         {activeTab === 'creator' && <StudyCenter initialTab="creator" />}
       </div>
 
-      {/* MOBILE BOTTOM NAVIGATION BAR */}
-      <nav className="fixed bottom-4 inset-x-4 z-40 max-w-lg mx-auto sm:hidden glass-panel px-3 py-2.5 rounded-2xl flex items-center justify-between">
-        {[
-          { id: 'dashboard', label: 'Home', icon: Compass },
-          { id: 'solver', label: 'Solver', icon: Sparkles },
-          { id: 'homework', label: 'Tasks', icon: BookOpenCheck },
-          { id: 'study-center', label: 'Library', icon: BookOpen },
-          { id: 'creator', label: 'Creator', icon: Info }
-        ].map((tab) => {
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex flex-col items-center justify-center p-1 cursor-pointer transition-all ${
-                isActive ? 'text-[var(--theme-accent)] scale-110' : 'text-[var(--theme-text-secondary)] hover:text-white'
-              }`}
-            >
-              <tab.icon size={17} className={isActive ? 'stroke-[2.5px]' : 'stroke-[1.8px]'} />
-              <span className="text-[7.5px] font-bold mt-1 tracking-wider">{tab.label}</span>
-            </button>
-          );
-        })}
+      {/* MOBILE BOTTOM NAVIGATION BAR — Horizontally scrollable to fit all tabs */}
+      <nav className="fixed bottom-3 inset-x-2 z-40 sm:hidden glass-panel px-2 py-2 rounded-2xl">
+        <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar">
+          {[
+            { id: 'dashboard', label: 'Home', icon: Compass },
+            { id: 'solver', label: 'Solver', icon: Sparkles },
+            { id: 'multi-solver', label: 'Multi-AI', icon: ListOrdered },
+            { id: 'homework', label: 'Tasks', icon: BookOpenCheck },
+            { id: 'mock-tests', label: 'Tests', icon: Clock },
+            { id: 'study-center', label: 'Library', icon: BookOpen },
+            { id: 'analytics', label: 'Stats', icon: BarChart },
+            { id: 'creator', label: 'Creator', icon: Info }
+          ].map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex flex-col items-center justify-center px-2.5 py-1.5 rounded-xl cursor-pointer transition-all shrink-0 min-w-[52px] ${
+                  isActive 
+                    ? 'bg-[var(--theme-accent)]/20 text-[var(--theme-accent)]' 
+                    : 'text-[var(--theme-text-secondary)] hover:text-white'
+                }`}
+              >
+                <tab.icon size={16} className={isActive ? 'stroke-[2.5px]' : 'stroke-[1.8px]'} />
+                <span className="text-[7px] font-bold mt-0.5 tracking-wide">{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </nav>
 
       {/* DESKTOP SIDEBAR/NAVBAR OPTION (Shown on tablet and up) */}

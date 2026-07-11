@@ -242,3 +242,13 @@
     display: block !important;
   }
 }
+
+/* Hide scrollbars on mobile nav without losing scroll functionality */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+

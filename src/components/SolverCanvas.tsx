@@ -576,7 +576,7 @@ export default function SolverCanvas({ onSolve, targetExam }: SolverCanvasProps)
                   ref={videoRef}
                   autoPlay 
                   playsInline
-                  className="w-full max-w-sm h-48 object-cover rounded-lg transform scale-x-[-1]"
+                  className="w-full max-w-sm h-48 object-cover rounded-lg"
                 />
                 {/* Live scanner animation overlay */}
                 <div className="absolute inset-0 pointer-events-none rounded-lg overflow-hidden">
