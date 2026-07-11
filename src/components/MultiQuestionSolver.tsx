@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from './AppContext';
-import { solveMultiQuestionsWithAI } from '../lib/aiService';
+import { solveMultiQuestionsWithAI, chatWithGemini } from '../lib/aiService';
 import { 
-  Sparkles, Camera, Upload, CheckCircle2, ChevronRight, FileText, 
-  Printer, Bookmark, Copy, Share2, HelpCircle, RefreshCw, ZoomIn, 
-  ListOrdered, CheckSquare, MessageSquare, ArrowLeft, Send
+  Sparkles, Camera, Upload, CheckCircle2, ChevronRight,
+  Printer, Bookmark, Copy, RefreshCw,
+  ListOrdered, CheckSquare, MessageSquare, ArrowLeft, Send,
+  X, Zap, AlertCircle, Brain
 } from 'lucide-react';
 import { addBookmark, getBookmarks, removeBookmark } from '../lib/localDb';
 
@@ -19,101 +20,117 @@ interface MultiQuestionSolverProps {
 export default function MultiQuestionSolver({ initialFileBase64, initialFileName, onBackToHomework }: MultiQuestionSolverProps) {
   const { profile, awardXP } = useApp();
   
-  // Image Scanning states
   const [capturedImage, setCapturedImage] = useState<string | null>(initialFileBase64 || null);
   const [fileName, setFileName] = useState(initialFileName || '');
-  const [enhancing, setEnhancing] = useState(false);
-  const [enhanceStep, setEnhanceStep] = useState('');
   const [solving, setSolving] = useState(false);
-  
-  // Solver results
+  const [solveError, setSolveError] = useState<string | null>(null);
   const [questions, setQuestions] = useState<any[]>([]);
   const [activeQuestionIndex, setActiveQuestionIndex] = useState<number>(0);
   const [selectedQuestions, setSelectedQuestions] = useState<number[]>([]);
   const [solutionTab, setSolutionTab] = useState<'steps' | 'tricks' | 'mistakes'>('steps');
-
-  // Follow-up AI Tutor Chat on active question
   const [followUpQuery, setFollowUpQuery] = useState('');
   const [followUpChats, setFollowUpChats] = useState<Record<number, { role: 'user' | 'assistant', text: string }[]>>({});
   const [followUpTyping, setFollowUpTyping] = useState(false);
-
-  // Enhancement Filters
   const [contrastLevel, setContrastLevel] = useState(100);
   const [brightnessLevel, setBrightnessLevel] = useState(100);
-  const [skewLevel, setSkewLevel] = useState(0);
-
-  // Bookmarking
   const [bookmarks, setBookmarks] = useState<string[]>([]);
+  const [showCamera, setShowCamera] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const solveAttempted = useRef(false);
 
   useEffect(() => {
     async function loadBookmarks() {
       const bms = await getBookmarks();
-      setBookmarks(bms.map(b => b.id));
+      setBookmarks(bms.map((b: any) => b.id));
     }
     loadBookmarks();
   }, []);
+
+  useEffect(() => {
+    if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+  }, [followUpChats, followUpTyping]);
+
+  useEffect(() => {
+    if (initialFileBase64 && !solveAttempted.current) {
+      solveAttempted.current = true;
+      handleSolveWorksheet(initialFileBase64);
+    }
+  }, [initialFileBase64]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setFileName(file.name);
-    
+    setSolveError(null);
     const reader = new FileReader();
     reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setCapturedImage(reader.result);
-        triggerEnhancement();
-      }
+      if (typeof reader.result === 'string') setCapturedImage(reader.result);
     };
     reader.readAsDataURL(file);
   };
 
-  const triggerEnhancement = () => {
-    setEnhancing(true);
-    setEnhanceStep('🔍 Detecting worksheet grid alignment...');
-    
-    setTimeout(() => {
-      setEnhanceStep('⚡ Correcting perspective skew & lens distortion...');
-      setSkewLevel(2);
-      
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment', width: { ideal: 1920 } } 
+      });
+      setCameraStream(stream);
+      setShowCamera(true);
       setTimeout(() => {
-        setEnhanceStep('📈 Optimizing contrast for handwriting legibility...');
-        setContrastLevel(125);
-        setBrightnessLevel(105);
-        
-        setTimeout(() => {
-          setEnhancing(false);
-        }, 800);
-      }, 1000);
-    }, 1000);
+        if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
+      }, 100);
+    } catch { alert('Camera access denied. Please allow camera permission.'); }
   };
 
-  const handleSolveWorksheet = async () => {
-    if (!capturedImage) return;
+  const stopCamera = () => {
+    if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); setCameraStream(null); }
+    setShowCamera(false);
+  };
+
+  const captureFromCamera = () => {
+    if (!videoRef.current) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(videoRef.current, 0, 0);
+    setCapturedImage(canvas.toDataURL('image/jpeg', 0.92));
+    setFileName('Camera Capture');
+    setSolveError(null);
+    stopCamera();
+  };
+
+  const handleSolveWorksheet = async (imageOverride?: string) => {
+    const image = imageOverride || capturedImage;
+    if (!image) return;
     setSolving(true);
-    
+    setSolveError(null);
+    setQuestions([]);
     try {
       const key = typeof window !== 'undefined' ? localStorage.getItem('gemini_api_key') : null;
       const targetExam = profile?.targetExam || 'ssc-cgl';
-      const results = await solveMultiQuestionsWithAI(capturedImage, targetExam, key);
-      
+      const results = await solveMultiQuestionsWithAI(image, targetExam, key);
+      if (!results || results.length === 0) {
+        setSolveError('No questions detected. Try a clearer photo with better lighting.');
+        return;
+      }
       setQuestions(results);
       setActiveQuestionIndex(0);
-      setSelectedQuestions(results.map(q => q.number)); // Select all by default
+      setSelectedQuestions(results.map((q: any) => q.number));
       awardXP(25, 10);
-    } catch (e) {
-      console.error(e);
-      alert("Error scanning worksheet. Loaded simulated corrections.");
+    } catch (e: any) {
+      setSolveError(e?.message || 'Scan failed. Check your Gemini API key in Settings.');
     } finally {
       setSolving(false);
     }
   };
 
   useEffect(() => {
-    if (initialFileBase64) {
-      handleSolveWorksheet();
-    }
-  }, [initialFileBase64]);
+    // Auto-solve is now handled via solveAttempted ref above
+  }, []);
 
   const handleToggleSelectQuestion = (qNum: number) => {
     setSelectedQuestions(prev => 
@@ -211,268 +228,247 @@ export default function MultiQuestionSolver({ initialFileBase64, initialFileName
     }, 500);
   };
 
-  const handleSendFollowUp = (e: React.FormEvent) => {
+  const handleSendFollowUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!followUpQuery.trim()) return;
-
+    if (!followUpQuery.trim() || followUpTyping) return;
     const qIndex = activeQuestionIndex;
     const currentQ = questions[qIndex];
     const chats = followUpChats[qIndex] || [];
-    
     const userMsg = { role: 'user' as const, text: followUpQuery };
     const updatedChats = [...chats, userMsg];
-    
     setFollowUpChats(prev => ({ ...prev, [qIndex]: updatedChats }));
     setFollowUpQuery('');
     setFollowUpTyping(true);
-
-    setTimeout(() => {
-      const answers = [
-        `For Question ${currentQ.number}, the shortcut works because we assume a base LCM value. If you double the variables, the speed becomes directly proportional to the squared ratio. Try checking if options match multiples of ${currentQ.correctAnswer.match(/\d+/) || 'the base'}.`,
-        `Under exam time limits, avoiding decimal multiplication is critical. You can verify this by checking the last digits in ${currentQ.formulaUsed}. Does this make the calculation clearer?`,
-        `The Vedic math method for this problem uses digit sum validation. The sum of digits of the question is equal to the correct option. Try writing it out.`
-      ];
-      
-      const assistantMsg = {
-        role: 'assistant' as const,
-        text: answers[Math.floor(Math.random() * answers.length)]
+    try {
+      const key = typeof window !== 'undefined' ? localStorage.getItem('gemini_api_key') : null;
+      const contextMsg = {
+        role: 'user' as const,
+        content: `Context: Solved Q from ${profile?.targetExam || 'SSC'} worksheet:\nQuestion: ${currentQ.text}\nAnswer: ${currentQ.correctAnswer}\nSteps: ${(currentQ.stepByStep || []).join(' -> ')}\nShortcut: ${currentQ.shortcutMethod}\n\nStudent asks: ${userMsg.text}`
       };
-      
-      setFollowUpChats(prev => ({
-        ...prev,
-        [qIndex]: [...updatedChats, assistantMsg]
-      }));
-      setFollowUpTyping(false);
+      const aiResponse = await chatWithGemini([contextMsg], key);
+      setFollowUpChats(prev => ({ ...prev, [qIndex]: [...updatedChats, { role: 'assistant' as const, text: aiResponse }] }));
       awardXP(5, 1);
-    }, 1500);
+    } catch {
+      setFollowUpChats(prev => ({ ...prev, [qIndex]: [...updatedChats, { role: 'assistant' as const, text: 'Unable to get AI response. Check your internet connection.' }] }));
+    } finally {
+      setFollowUpTyping(false);
+    }
   };
 
   const activeQ = questions[activeQuestionIndex];
 
   return (
-    <div className="w-full space-y-6 text-white pb-12 animate-fade-in">
-      {/* Title Header */}
-      <div className="glass-panel p-4 rounded-xl flex items-center justify-between">
+    <div className="w-full space-y-4 text-white pb-24 animate-fade-in">
+      {/* HEADER */}
+      <div className="glass-panel p-4 rounded-xl flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           {onBackToHomework && (
-            <button
-              onClick={onBackToHomework}
-              className="p-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 text-[var(--theme-text-secondary)] hover:text-white transition-all cursor-pointer mr-1"
-            >
+            <button onClick={onBackToHomework} className="p-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-all cursor-pointer">
               <ArrowLeft size={14} />
             </button>
           )}
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 flex items-center justify-center">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 flex items-center justify-center shrink-0">
             <ListOrdered size={16} />
           </div>
           <div>
-            <h2 className="text-base font-extrabold text-gradient">Multi-Question AI Solver</h2>
-            <p className="text-[10px] text-[var(--theme-text-secondary)]">Enhance, detect, and solve worksheets in a single upload</p>
+            <h2 className="text-sm font-extrabold text-gradient">Multi-Question AI Solver</h2>
+            <p className="text-[10px] text-[var(--theme-text-secondary)]">Photograph or upload any worksheet — AI solves everything</p>
           </div>
         </div>
-        
         {questions.length > 0 && (
-          <div className="flex gap-2">
-            <button
-              onClick={handleExportPDF}
-              className="flex items-center gap-1 py-1.5 px-3 bg-white/5 border border-white/10 hover:bg-white/10 rounded-lg text-[10px] font-bold transition-all cursor-pointer active:scale-95"
-            >
-              <Printer size={12} /> Export PDF
-            </button>
-          </div>
+          <button onClick={handleExportPDF} className="flex items-center gap-1 py-1.5 px-3 bg-white/5 border border-white/10 hover:bg-white/10 rounded-lg text-[10px] font-bold transition-all cursor-pointer shrink-0">
+            <Printer size={12} /> Export PDF
+          </button>
         )}
       </div>
 
-      {/* RENDER CHOOSE IMAGE / RESOLVING FLOW */}
+      {/* CAMERA MODAL */}
+      {showCamera && (
+        <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-md space-y-4">
+            <div className="relative rounded-2xl overflow-hidden border border-white/10 bg-black aspect-video">
+              <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+              <div className="absolute inset-0 pointer-events-none">
+                <div className="absolute inset-6 border-2 border-white/20 rounded-lg" />
+                <div className="absolute top-6 left-6 w-6 h-6 border-t-2 border-l-2 border-blue-400 rounded-tl" />
+                <div className="absolute top-6 right-6 w-6 h-6 border-t-2 border-r-2 border-blue-400 rounded-tr" />
+                <div className="absolute bottom-6 left-6 w-6 h-6 border-b-2 border-l-2 border-blue-400 rounded-bl" />
+                <div className="absolute bottom-6 right-6 w-6 h-6 border-b-2 border-r-2 border-blue-400 rounded-br" />
+              </div>
+            </div>
+            <p className="text-center text-xs text-[var(--theme-text-secondary)]">Position your worksheet within the frame</p>
+            <div className="flex gap-3">
+              <button onClick={stopCamera} className="flex-1 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-sm font-bold flex items-center justify-center gap-2 cursor-pointer transition-all">
+                <X size={16} /> Cancel
+              </button>
+              <button onClick={captureFromCamera} className="flex-1 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:opacity-90 rounded-xl text-sm font-bold flex items-center justify-center gap-2 cursor-pointer active:scale-95 transition-all shadow-lg shadow-blue-500/30">
+                <Camera size={16} /> Capture
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {questions.length === 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* UPLOAD & IMAGE CARD */}
-          <div className="glass-panel p-5 rounded-2xl flex flex-col justify-between min-h-[300px]">
-            <div className="space-y-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--theme-text-secondary)]">Upload Worksheet</h3>
-              
-              {!capturedImage ? (
-                <div className="border border-dashed border-white/10 rounded-xl p-8 text-center space-y-4 hover:border-blue-500/40 transition-all">
-                  <div className="w-12 h-12 bg-white/5 border border-white/10 rounded-full flex items-center justify-center mx-auto text-blue-400">
-                    <Upload size={20} className="animate-pulse" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="glass-panel p-5 rounded-2xl space-y-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--theme-text-secondary)]">Upload or Scan Worksheet</h3>
+            
+            {!capturedImage ? (
+              <div className="space-y-3">
+                <div className="border-2 border-dashed border-white/10 rounded-xl p-8 text-center space-y-3 hover:border-blue-500/40 transition-all">
+                  <div className="w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto text-blue-400">
+                    <Upload size={20} />
                   </div>
-                  <div>
-                    <p className="text-xs font-bold text-white mb-1">Select Worksheet Image or PDF</p>
-                    <p className="text-[10px] text-[var(--theme-text-secondary)]">Supports multi-question sheets with 10-20 mathematical equations.</p>
-                  </div>
-                  <label className="inline-flex items-center gap-1.5 py-2 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:opacity-90 text-xs font-bold rounded-xl cursor-pointer transition-all active:scale-95">
-                    Choose Worksheet File
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleFileUpload}
-                      className="hidden"
-                    />
+                  <p className="text-xs text-[var(--theme-text-secondary)]">Supports JPG, PNG — multi-question exam sheets</p>
+                  <label className="inline-flex items-center gap-1.5 py-2 px-5 bg-gradient-to-r from-blue-600 to-indigo-600 text-xs font-bold rounded-xl cursor-pointer hover:opacity-90 active:scale-95 transition-all">
+                    <Upload size={13} /> Choose File
+                    <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
                   </label>
                 </div>
-              ) : (
-                <div className="relative border border-white/5 rounded-xl overflow-hidden aspect-video bg-slate-950 flex items-center justify-center">
-                  <img
-                    src={capturedImage}
-                    alt="Worksheet Preview"
-                    className="max-h-full max-w-full transition-all duration-500 object-contain"
-                    style={{
-                      filter: `contrast(${contrastLevel}%) brightness(${brightnessLevel}%)`,
-                      transform: `rotate(${skewLevel}deg)`
-                    }}
+                <button onClick={startCamera} className="w-full py-3 flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:bg-white/10 hover:border-blue-500/30 rounded-xl text-xs font-bold transition-all cursor-pointer active:scale-95">
+                  <Camera size={15} className="text-blue-400" /> Use Camera to Scan Worksheet
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="relative rounded-xl overflow-hidden bg-slate-950 aspect-video flex items-center justify-center border border-white/5">
+                  <img src={capturedImage} alt="Worksheet"
+                    className="max-h-full max-w-full object-contain transition-all"
+                    style={{ filter: `contrast(${contrastLevel}%) brightness(${brightnessLevel}%)` }}
                   />
-                  
-                  {enhancing && (
-                    <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center text-center p-4">
-                      <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin mb-3" />
-                      <div className="text-xs font-semibold text-gradient">{enhanceStep}</div>
-                    </div>
-                  )}
-
                   {solving && (
-                    <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center text-center p-4">
-                      <div className="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin mb-3" />
-                      <div className="text-xs font-semibold text-gradient animate-pulse">Running Gemini OCR Question Segmentation...</div>
+                    <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center gap-3">
+                      <div className="relative">
+                        <div className="w-12 h-12 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                        <Brain size={16} className="absolute inset-0 m-auto text-indigo-400" />
+                      </div>
+                      <p className="text-xs font-bold text-gradient animate-pulse">Gemini 2.5 Flash scanning questions...</p>
+                      <p className="text-[10px] text-[var(--theme-text-secondary)]">OCR + AI solving all detected questions</p>
                     </div>
                   )}
                 </div>
-              )}
-            </div>
-
-            {capturedImage && !enhancing && !solving && (
-              <div className="flex gap-2 justify-end mt-4">
-                <button
-                  type="button"
-                  onClick={() => setCapturedImage(null)}
-                  className="py-2 px-4 bg-white/5 hover:bg-white/10 text-xs font-bold rounded-xl active:scale-95 transition-all cursor-pointer"
-                >
-                  Clear File
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSolveWorksheet}
-                  className="flex items-center gap-1.5 py-2 px-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:opacity-90 text-xs font-bold rounded-xl text-white active:scale-95 transition-all cursor-pointer shadow-lg shadow-blue-500/20"
-                >
-                  Detect & Solve All Questions <Sparkles size={14} />
-                </button>
+                {solveError && (
+                  <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-2 text-xs text-red-300">
+                    <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                    <span>{solveError}</span>
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <button onClick={() => { setCapturedImage(null); setSolveError(null); }}
+                    className="py-2 px-3 bg-white/5 hover:bg-white/10 text-xs font-bold rounded-xl cursor-pointer transition-all active:scale-95">Clear</button>
+                  <button onClick={startCamera} className="py-2 px-3 bg-white/5 hover:bg-white/10 text-xs font-bold rounded-xl cursor-pointer transition-all active:scale-95 flex items-center gap-1">
+                    <Camera size={12} /> Retake
+                  </button>
+                  <button onClick={() => handleSolveWorksheet()} disabled={solving}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:opacity-90 text-xs font-bold rounded-xl text-white cursor-pointer active:scale-95 transition-all shadow-lg shadow-blue-500/20 disabled:opacity-60 disabled:cursor-wait">
+                    {solving ? <RefreshCw size={13} className="animate-spin" /> : <Zap size={13} />}
+                    {solving ? 'AI Solving...' : 'Detect & Solve All'}
+                  </button>
+                </div>
               </div>
             )}
           </div>
 
-          {/* PERSPECTIVE / ENHANCE FILTERS CARD */}
+          {/* Enhancement Controls */}
           <div className="glass-panel p-5 rounded-2xl space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--theme-text-secondary)]">Worksheet Preprocessor Controls</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--theme-text-secondary)]">Image Enhancement</h3>
             <p className="text-[11px] text-[var(--theme-text-secondary)] leading-relaxed">
-              Low contrast or crooked captures cause OCR misses. The engine corrects perspective distortion and scales luminance dynamically.
+              Adjust contrast and brightness to help AI recognize handwriting better.
             </p>
-
-            <div className="space-y-4 text-xs pt-2">
+            <div className="space-y-4 text-xs">
               <div className="space-y-1.5">
                 <div className="flex justify-between font-bold text-[var(--theme-text-secondary)]">
-                  <span>Contrast Threshold</span>
-                  <span>{contrastLevel}%</span>
+                  <span>Contrast</span><span className="text-white">{contrastLevel}%</span>
                 </div>
-                <input 
-                  type="range" min="80" max="200" 
-                  value={contrastLevel} onChange={e => setContrastLevel(Number(e.target.value))}
-                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                />
+                <input type="range" min="80" max="200" value={contrastLevel} onChange={e => setContrastLevel(Number(e.target.value))}
+                  className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500" />
               </div>
-
               <div className="space-y-1.5">
                 <div className="flex justify-between font-bold text-[var(--theme-text-secondary)]">
-                  <span>Luminance (Brightness)</span>
-                  <span>{brightnessLevel}%</span>
+                  <span>Brightness</span><span className="text-white">{brightnessLevel}%</span>
                 </div>
-                <input 
-                  type="range" min="80" max="150" 
-                  value={brightnessLevel} onChange={e => setBrightnessLevel(Number(e.target.value))}
-                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                />
+                <input type="range" min="80" max="150" value={brightnessLevel} onChange={e => setBrightnessLevel(Number(e.target.value))}
+                  className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500" />
               </div>
-
-              <div className="space-y-1.5">
-                <div className="flex justify-between font-bold text-[var(--theme-text-secondary)]">
-                  <span>Perspective Correct Skew</span>
-                  <span>{skewLevel}°</span>
-                </div>
-                <input 
-                  type="range" min="-10" max="10" 
-                  value={skewLevel} onChange={e => setSkewLevel(Number(e.target.value))}
-                  className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                />
-              </div>
-            </div>
-            
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={triggerEnhancement}
-                className="w-full py-2 bg-white/5 border border-white/10 hover:bg-white/10 text-xs font-bold rounded-xl transition-all cursor-pointer active:scale-95"
-              >
-                Auto Calibration Enhance
+              <button onClick={() => { setContrastLevel(125); setBrightnessLevel(108); }}
+                className="w-full py-2 bg-white/5 border border-white/10 hover:bg-white/10 text-xs font-bold rounded-xl cursor-pointer active:scale-95 transition-all">
+                Auto Enhance for Handwriting
               </button>
+            </div>
+            <div className="pt-2 border-t border-white/5 space-y-1.5">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--theme-text-secondary)]">Tips for best results</p>
+              {['Use good lighting — avoid shadows','Keep camera parallel to paper','All questions must be in frame','Higher contrast helps faint pencil writing'].map((tip, i) => (
+                <div key={i} className="flex items-start gap-1.5 text-[10px] text-[var(--theme-text-secondary)]">
+                  <CheckCircle2 size={10} className="text-green-400 mt-0.5 shrink-0" /><span>{tip}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
       ) : (
-        /* SOLUTIONS NAVIGATOR VIEWER */
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-          {/* LEFT INDEX PANEL */}
-          <div className="glass-panel p-4 rounded-2xl space-y-4">
-            <div className="flex justify-between items-center border-b border-white/5 pb-2">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--theme-text-secondary)]">Questions Detected</h3>
-              <span className="text-[10px] text-green-400 font-bold bg-green-500/10 px-2 py-0.5 rounded border border-green-500/20">{questions.length} Questions</span>
+        /* SOLUTIONS VIEW */
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-3">
+            <div className="glass-panel p-3 rounded-xl text-center">
+              <div className="text-xl font-black text-[var(--theme-accent)]">{questions.length}</div>
+              <div className="text-[9px] uppercase tracking-wider text-[var(--theme-text-secondary)] font-bold">Questions</div>
             </div>
-
-            <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
-              {questions.map((q, idx) => {
-                const isActive = activeQuestionIndex === idx;
-                const isSelected = selectedQuestions.includes(q.number);
-                
-                return (
-                  <div
-                    key={q.number}
-                    onClick={() => setActiveQuestionIndex(idx)}
-                    className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
-                      isActive ? 'bg-[var(--theme-accent)]/15 border-[var(--theme-accent)]' : 'bg-white/5 border-white/5 hover:bg-white/10'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); handleToggleSelectQuestion(q.number); }}
-                        className={`p-0.5 rounded transition-all ${isSelected ? 'text-[var(--theme-accent)]' : 'text-slate-500'}`}
-                      >
-                        <CheckSquare size={14} className={isSelected ? 'fill-[var(--theme-accent)]/10' : ''} />
-                      </button>
-                      
-                      <div className="text-left">
-                        <span className="font-bold text-xs">Question {q.number}</span>
-                        <p className="text-[9px] text-[var(--theme-text-secondary)] truncate w-36 sm:w-48">{q.text}</p>
-                      </div>
-                    </div>
-                    <ChevronRight size={13} className="text-[var(--theme-text-secondary)]" />
-                  </div>
-                );
-              })}
+            <div className="glass-panel p-3 rounded-xl text-center">
+              <div className="text-xl font-black text-green-400">{questions.filter(q => q.difficulty === 'Easy').length}</div>
+              <div className="text-[9px] uppercase tracking-wider text-[var(--theme-text-secondary)] font-bold">Easy</div>
             </div>
-            
-            <div className="border-t border-white/5 pt-3 flex gap-2">
-              <button
-                onClick={() => setSelectedQuestions(questions.map(q => q.number))}
-                className="flex-1 py-2 bg-white/5 border border-white/10 hover:bg-white/10 text-[9px] font-bold rounded-xl cursor-pointer"
-              >
-                Select All
-              </button>
-              <button
-                onClick={() => setSelectedQuestions([])}
-                className="flex-1 py-2 bg-white/5 border border-white/10 hover:bg-white/10 text-[9px] font-bold rounded-xl cursor-pointer"
-              >
-                Deselect All
-              </button>
+            <div className="glass-panel p-3 rounded-xl text-center">
+              <div className="text-xl font-black text-orange-400">{questions.filter(q => q.difficulty !== 'Easy').length}</div>
+              <div className="text-[9px] uppercase tracking-wider text-[var(--theme-text-secondary)] font-bold">Med/Hard</div>
             </div>
           </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+            {/* QUESTION INDEX */}
+            <div className="glass-panel p-4 rounded-2xl space-y-3">
+              <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--theme-text-secondary)]">Questions</h3>
+                <span className="text-[10px] text-green-400 font-bold bg-green-500/10 px-2 py-0.5 rounded border border-green-500/20">{questions.length} total</span>
+              </div>
+              <div className="space-y-1.5 max-h-[400px] overflow-y-auto pr-1">
+                {questions.map((q, idx) => {
+                  const isActive = activeQuestionIndex === idx;
+                  const isSelected = selectedQuestions.includes(q.number);
+                  const diffColor = q.difficulty === 'Easy' ? 'text-green-400' : q.difficulty === 'Hard' ? 'text-red-400' : 'text-orange-400';
+                  return (
+                    <div key={q.number} onClick={() => setActiveQuestionIndex(idx)}
+                      className={`p-2.5 rounded-xl border flex items-center gap-2 cursor-pointer transition-all ${
+                        isActive ? 'bg-[var(--theme-accent)]/15 border-[var(--theme-accent)]/50' : 'bg-white/3 border-white/5 hover:bg-white/8'
+                      }`}
+                    >
+                      <button type="button"
+                        onClick={e => { e.stopPropagation(); setSelectedQuestions(prev => prev.includes(q.number) ? prev.filter(n => n !== q.number) : [...prev, q.number]); }}
+                        className={`shrink-0 ${isSelected ? 'text-[var(--theme-accent)]' : 'text-slate-600'}`}>
+                        <CheckSquare size={13} />
+                      </button>
+                      <div className="flex-1 text-left min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-[11px]">Q{q.number}</span>
+                          <span className={`text-[8px] font-bold uppercase ${diffColor}`}>{q.difficulty}</span>
+                        </div>
+                        <p className="text-[9px] text-[var(--theme-text-secondary)] truncate">{q.text}</p>
+                      </div>
+                      <ChevronRight size={12} className="text-[var(--theme-text-secondary)] shrink-0" />
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex gap-2 border-t border-white/5 pt-2">
+                <button onClick={() => setSelectedQuestions(questions.map(q => q.number))}
+                  className="flex-1 py-1.5 bg-white/5 border border-white/10 hover:bg-white/10 text-[9px] font-bold rounded-lg cursor-pointer">All</button>
+                <button onClick={() => setSelectedQuestions([])}
+                  className="flex-1 py-1.5 bg-white/5 border border-white/10 hover:bg-white/10 text-[9px] font-bold rounded-lg cursor-pointer">None</button>
+                <button onClick={() => { setQuestions([]); setCapturedImage(null); setSolveError(null); }}
+                  className="flex-1 py-1.5 bg-white/5 border border-white/10 hover:bg-white/10 text-[9px] font-bold rounded-lg cursor-pointer flex items-center justify-center gap-1">
+                  <RefreshCw size={9} /> New
+                </button>
+              </div>
+            </div>
 
           {/* RIGHT SOLUTION DETAILS PANEL */}
           {activeQ && (
@@ -605,58 +601,42 @@ export default function MultiQuestionSolver({ initialFileBase64, initialFileName
                 )}
               </div>
 
-              {/* FOLLOW-UP AI TUTOR CHAT */}
-              <div className="glass-panel p-5 rounded-2xl space-y-4">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--theme-text-secondary)] flex items-center gap-1.5 border-b border-white/5 pb-2">
-                  <MessageSquare size={14} className="text-[var(--theme-accent)]" /> AI Tutor follow-up chat
-                </h4>
-
-                {/* Chats list */}
-                <div className="space-y-3 max-h-[160px] overflow-y-auto pr-1">
-                  <div className="p-2 bg-slate-900 border border-white/5 rounded-xl text-[11px] text-left">
-                    🎓 Ask me questions regarding **Question ${activeQ.number}** details or shortcuts.
+                {/* AI TUTOR CHAT */}
+                <div className="glass-panel p-4 rounded-2xl space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--theme-text-secondary)] flex items-center gap-1.5 border-b border-white/5 pb-2">
+                    <MessageSquare size={13} className="text-[var(--theme-accent)]" /> Ask AI Tutor about Q{activeQ.number}
+                  </h4>
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    <div className="p-2.5 bg-slate-900 border border-white/5 rounded-xl text-[11px] text-[var(--theme-text-secondary)]">
+                      Ask me anything about this question — shortcuts, explanation in Hindi/Bengali, alternative methods...
+                    </div>
+                    {(followUpChats[activeQuestionIndex] || []).map((msg, i) => (
+                      <div key={i} className={`p-2.5 rounded-xl text-xs max-w-[85%] ${
+                        msg.role === 'user' ? 'bg-[var(--theme-accent)] text-white ml-auto' : 'bg-white/5 border border-white/5 text-[var(--theme-text-primary)]'
+                      }`}>{msg.text}</div>
+                    ))}
+                    {followUpTyping && (
+                      <div className="flex gap-1 items-center p-2.5 bg-white/5 border border-white/5 rounded-xl w-16">
+                        <div className="w-1.5 h-1.5 bg-[var(--theme-accent)] rounded-full animate-bounce" style={{animationDelay:'0ms'}} />
+                        <div className="w-1.5 h-1.5 bg-[var(--theme-accent)] rounded-full animate-bounce" style={{animationDelay:'150ms'}} />
+                        <div className="w-1.5 h-1.5 bg-[var(--theme-accent)] rounded-full animate-bounce" style={{animationDelay:'300ms'}} />
+                      </div>
+                    )}
+                    <div ref={chatEndRef} />
                   </div>
-                  
-                  {(followUpChats[activeQuestionIndex] || []).map((msg, mIdx) => (
-                    <div
-                      key={mIdx}
-                      className={`p-2.5 rounded-xl text-xs max-w-[85%] text-left ${
-                        msg.role === 'user'
-                          ? 'bg-[var(--theme-accent)] text-white ml-auto'
-                          : 'bg-white/5 border border-white/5 text-[var(--theme-text-primary)]'
-                      }`}
-                    >
-                      {msg.text}
-                    </div>
-                  ))}
-
-                  {followUpTyping && (
-                    <div className="p-2 bg-white/5 border border-white/5 rounded-xl text-[10px] text-slate-500 animate-pulse text-left">
-                      ExamSprint AI Tutor is typing explanation...
-                    </div>
-                  )}
+                  <form onSubmit={handleSendFollowUp} className="flex gap-2">
+                    <input type="text" value={followUpQuery} onChange={e => setFollowUpQuery(e.target.value)}
+                      placeholder="Explain step 2... or Explain in Hindi..."
+                      className="flex-1 py-2 px-3 bg-white/5 border border-white/10 rounded-xl focus:outline-none focus:border-[var(--theme-accent)] text-xs text-white" />
+                    <button type="submit" disabled={!followUpQuery.trim() || followUpTyping}
+                      className="p-2.5 bg-[var(--theme-accent)] hover:opacity-90 rounded-xl text-white transition-all cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+                      <Send size={14} />
+                    </button>
+                  </form>
                 </div>
-
-                {/* Chat Input form */}
-                <form onSubmit={handleSendFollowUp} className="flex gap-2 mt-2">
-                  <input
-                    type="text"
-                    value={followUpQuery}
-                    onChange={e => setFollowUpQuery(e.target.value)}
-                    placeholder="Ask AI tutor to explain step 2, or translate..."
-                    className="flex-1 py-2 px-3 bg-white/5 border border-white/10 rounded-xl focus:outline-none focus:border-[var(--theme-accent)] text-xs text-white"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!followUpQuery.trim()}
-                    className="p-2 bg-[var(--theme-accent)] hover:opacity-90 rounded-xl text-white transition-all cursor-pointer active:scale-95 disabled:opacity-50"
-                  >
-                    <Send size={14} />
-                  </button>
-                </form>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
     </div>
