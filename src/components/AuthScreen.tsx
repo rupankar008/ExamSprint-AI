@@ -5,7 +5,7 @@ import { UserProfile } from '../lib/localDb';
 import { EXAM_LIST } from '../lib/syllabus';
 import { ShieldCheck, User, KeyRound, Loader2, AlertCircle } from 'lucide-react';
 import { cloudDb } from '../lib/cloudDb';
-import { signInWithGoogleReal, isFirebaseConfigured } from '../lib/firebase';
+import { signInWithGoogleReal, isFirebaseConfigured, checkRedirectResultReal } from '../lib/firebase';
 
 interface AuthScreenProps {
   onAuthComplete: (profile: UserProfile, sessionEmail: string) => void;
@@ -48,6 +48,26 @@ export default function AuthScreen({ onAuthComplete }: AuthScreenProps) {
     streakCount: 1
   });
 
+  // Check for mobile redirect logins on mount
+  React.useEffect(() => {
+    async function checkRedirect() {
+      if (!isFirebaseConfigured) return;
+      try {
+        setLoading(true);
+        const res = await checkRedirectResultReal();
+        if (res && res.email) {
+          handleAuthSuccess(res.email, res.name);
+        } else {
+          setLoading(false);
+        }
+      } catch (err) {
+        console.error("Redirect check failed", err);
+        setLoading(false);
+      }
+    }
+    checkRedirect();
+  }, []);
+
   const handleGoogleSignInClick = async () => {
     if (!isFirebaseConfigured) {
       alert("⚠️ Firebase Config Missing:\n\nPlease setup your real Firebase Web Project credentials in '.env.local' to initiate live Google OAuth Sign-In.");
@@ -59,6 +79,11 @@ export default function AuthScreen({ onAuthComplete }: AuthScreenProps) {
       // Run Real Google Authentication via Firebase Auth SDK
       const res = await signInWithGoogleReal();
       if (res) {
+        if (res.redirectStarted) {
+          // Redirect has initiated, keep the spinner going
+          console.log("Redirect sign-in initiated. Waiting for user reload...");
+          return;
+        }
         handleAuthSuccess(res.email, res.name);
       } else {
         setLoading(false);

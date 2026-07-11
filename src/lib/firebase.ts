@@ -1,5 +1,12 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, UserCredential } from 'firebase/auth';
+import { 
+  getAuth, 
+  GoogleAuthProvider, 
+  signInWithPopup, 
+  signInWithRedirect, 
+  getRedirectResult, 
+  UserCredential 
+} from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, collection, query, getDocs, deleteDoc, updateDoc } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -56,14 +63,29 @@ export async function getUserDataFromFirebase(email: string) {
   return null;
 }
 
-export async function signInWithGoogleReal(): Promise<{ email: string; name: string } | null> {
+export async function signInWithGoogleReal(): Promise<{ email: string; name: string; redirectStarted?: boolean } | null> {
   try {
-    const result: UserCredential = await signInWithPopup(auth, googleProvider);
-    if (result.user) {
-      return {
-        email: result.user.email || '',
-        name: result.user.displayName || 'Google User'
-      };
+    const isMobile = typeof window !== 'undefined' && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    
+    if (isMobile) {
+      console.log("Mobile device detected. Initiating Google Sign-In with Redirect...");
+      await signInWithRedirect(auth, googleProvider);
+      return { email: '', name: '', redirectStarted: true };
+    }
+
+    try {
+      const result: UserCredential = await signInWithPopup(auth, googleProvider);
+      if (result.user) {
+        return {
+          email: result.user.email || '',
+          name: result.user.displayName || 'Google User'
+        };
+      }
+    } catch (popupError: any) {
+      // Fallback if popup is blocked or fails
+      console.warn("Popup blocked or failed. Falling back to Redirect...", popupError);
+      await signInWithRedirect(auth, googleProvider);
+      return { email: '', name: '', redirectStarted: true };
     }
   } catch (error) {
     console.error("Firebase Google Sign-In error:", error);
@@ -71,3 +93,20 @@ export async function signInWithGoogleReal(): Promise<{ email: string; name: str
   }
   return null;
 }
+
+export async function checkRedirectResultReal(): Promise<{ email: string; name: string } | null> {
+  try {
+    const result = await getRedirectResult(auth);
+    if (result && result.user) {
+      return {
+        email: result.user.email || '',
+        name: result.user.displayName || 'Google User'
+      };
+    }
+  } catch (error) {
+    console.error("Error getting Firebase redirect result:", error);
+    throw error;
+  }
+  return null;
+}
+
