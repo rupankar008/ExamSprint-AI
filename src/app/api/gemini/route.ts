@@ -12,14 +12,18 @@ function cleanJson(raw: string): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { query, base64Image, targetExam, userApiKey, mode } = body;
+    const { query, base64Image, targetExam, userApiKey, mode } = await req.json();
 
-    const serverKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY || "";
-    const apiKey = serverKey || (userApiKey && userApiKey.trim() ? userApiKey.trim() : "");
+    let apiKey = userApiKey?.trim();
+    if (!apiKey) {
+      const serverKeys = (process.env.GEMINI_API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
+      if (serverKeys.length > 0) {
+        apiKey = serverKeys[Math.floor(Math.random() * serverKeys.length)];
+      }
+    }
 
     if (!apiKey) {
-      return NextResponse.json({ error: "No Gemini API key. Set GEMINI_API_KEY in Vercel env vars." }, { status: 400 });
+      return NextResponse.json({ error: "Missing API Key" }, { status: 401 });
     }
 
     const parts: any[] = [];

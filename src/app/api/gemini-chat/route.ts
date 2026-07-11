@@ -7,8 +7,13 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { history, userApiKey } = body;
 
-    const serverKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY || "";
-    const apiKey = serverKey || (userApiKey && userApiKey.trim() ? userApiKey.trim() : "");
+    let apiKey = userApiKey?.trim();
+    if (!apiKey) {
+      const serverKeys = (process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
+      if (serverKeys.length > 0) {
+        apiKey = serverKeys[Math.floor(Math.random() * serverKeys.length)];
+      }
+    }
 
     if (!apiKey) {
       return NextResponse.json({ error: "No Gemini API key configured" }, { status: 400 });
