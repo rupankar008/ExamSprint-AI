@@ -1,14 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
-function cleanJsonResponse(rawText: string): string {
-  let cleaned = rawText.trim();
-  if (cleaned.startsWith("```")) {
-    cleaned = cleaned.replace(/^```(?:json)?\s*/i, "");
-    cleaned = cleaned.replace(/\s*```$/, "");
+function cleanJson(raw: string): string {
+  let c = raw.trim();
+  if (c.startsWith("```")) {
+    c = c.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   }
-  return cleaned.trim();
+  return c.trim();
 }
 
 export async function POST(req: NextRequest) {
@@ -17,76 +16,65 @@ export async function POST(req: NextRequest) {
     const { query, base64Image, targetExam, userApiKey, mode } = body;
 
     const serverKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY || "";
-    const apiKey = (userApiKey && userApiKey.trim()) ? userApiKey.trim() : serverKey;
+    const apiKey = serverKey || (userApiKey && userApiKey.trim() ? userApiKey.trim() : "");
 
     if (!apiKey) {
-      return NextResponse.json({ error: "No Gemini API key configured" }, { status: 400 });
+      return NextResponse.json({ error: "No Gemini API key. Set GEMINI_API_KEY in Vercel env vars." }, { status: 400 });
     }
 
     const parts: any[] = [];
 
     if (mode === "multi") {
-      parts.push({ text: `Analyze the attached worksheet and solve all questions for Target Exam: ${targetExam}. Respond strictly in JSON format with a "questions" array.` });
+      parts.push({ text: `Analyze the attached worksheet. Solve all questions for exam: ${targetExam || "SSC CGL"}. JSON only, no markdown.` });
     } else {
-      let promptText = "";
-      if (query && query !== "Vision OCR math formula" && query !== "Handwritten equation") {
-        promptText = `Question/Query: ${query}\n\nTarget Exam: ${targetExam}\n\nRespond strictly with the specified JSON structure.`;
-      } else {
-        promptText = `Question: Scan, extract and solve the mathematical or conceptual question present in the attached image.\n\nTarget Exam: ${targetExam}\n\nRespond strictly with the specified JSON structure.`;
-      }
-      parts.push({ text: promptText });
+      const txt = (query && query !== "Vision OCR math formula" && query !== "Handwritten equation")
+        ? `Question: ${query}\nExam: ${targetExam || "SSC CGL"}\nRespond ONLY as valid JSON.`
+        : `Scan image, extract and solve all math questions.\nExam: ${targetExam || "SSC CGL"}\nRespond ONLY as valid JSON.`;
+      parts.push({ text: txt });
     }
 
     if (base64Image) {
       let mimeType = "image/jpeg";
-      const mimeMatch = base64Image.match(/^data:(image\/\w+);base64,/);
-      if (mimeMatch) mimeType = mimeMatch[1];
-      const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, "");
-      parts.push({ inlineData: { mimeType, data: base64Data } });
+      const mm = base64Image.match(/^data:(image\/[\w+]+);base64,/);
+      if (mm) mimeType = mm[1];
+      const b64 = base64Image.replace(/^data:image\/[\w+]+;base64,/, "");
+      parts.push({ inlineData: { mimeType, data: b64 } });
     }
 
-    const systemPrompt =
-      mode === "multi"
-        ? `You are ExamSprint AI, an expert exam tutor scanner. Analyze the attached worksheet, OCR-scan, identify every individual question, number them, and solve each for target exam: "${targetExam}". Respond STRICTLY as JSON: { "questions": [ { "number": 1, "text": "...", "topic": "...", "chapter": "...", "difficulty": "Easy|Medium|Hard", "solvingTime": "...", "correctAnswer": "...", "stepByStep": ["..."], "shortcutMethod": "...", "fastTrick": "...", "alternativeSolution": "...", "formulaUsed": "...", "memoryTrick": "...", "commonMistakes": "..." } ] }`
-        : `You are ExamSprint AI, India's most advanced learning platform for competitive exams. Answer the query (text or image) for target exam: "${targetExam}". Respond STRICTLY as JSON: { "topic": "...", "chapter": "...", "difficulty": "Easy|Medium|Hard", "solvingTime": "...", "marks": "...", "correctAnswer": "...", "stepByStep": ["..."], "shortcutMethod": "...", "fastTrick": "...", "alternativeSolution": "...", "formulaUsed": "...", "memoryTrick": "...", "commonMistakes": "...", "frequency": "...", "importance": "...", "similarQuestions": ["..."] }`;
+    const sysPrompt = mode === "multi"
+      ? `You are ExamSprint AI exam tutor. Analyze worksheet OCR, solve every question for exam "${targetExam}". Return ONLY JSON: { "questions": [ { "number": 1, "text": "...", "topic": "...", "chapter": "...", "difficulty": "Easy|Medium|Hard", "solvingTime": "...", "correctAnswer": "...", "stepByStep": ["..."], "shortcutMethod": "...", "fastTrick": "...", "alternativeSolution": "...", "formulaUsed": "...", "memoryTrick": "...", "commonMistakes": "..." } ] }`
+      : `You are ExamSprint AI tutor for Indian govt exams. Answer query for exam "${targetExam}". Return ONLY JSON: { "topic": "...", "chapter": "...", "difficulty": "Easy|Medium|Hard", "solvingTime": "...", "marks": "...", "correctAnswer": "...", "stepByStep": ["..."], "shortcutMethod": "...", "fastTrick": "...", "alternativeSolution": "...", "formulaUsed": "...", "memoryTrick": "...", "commonMistakes": "...", "frequency": "...", "importance": "...", "similarQuestions": ["..."] }`;
 
-    const response = await fetch(
+    const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts }],
-          systemInstruction: { parts: [{ text: systemPrompt }] },
-          generationConfig: { responseMimeType: "application/json" }
+          systemInstruction: { parts: [{ text: sysPrompt }] },
+          generationConfig: { responseMimeType: "application/json", temperature: 0.2, maxOutputTokens: 8192 }
         })
       }
     );
 
-    if (!response.ok) {
-      const errorBody = await response.text();
-      let errorMsg = `Gemini API returned status: ${response.status}`;
-      try {
-        const errorJson = JSON.parse(errorBody);
-        if (errorJson.error?.message) errorMsg += ` - ${errorJson.error.message}`;
-        else errorMsg += ` - ${errorBody}`;
-      } catch {
-        errorMsg += ` - ${errorBody}`;
-      }
-      return NextResponse.json({ error: errorMsg }, { status: response.status });
+    if (!res.ok) {
+      const eb = await res.text();
+      let msg = `Gemini ${res.status}`;
+      try { msg = JSON.parse(eb).error?.message || eb; } catch { msg = eb.substring(0, 300); }
+      return NextResponse.json({ error: msg }, { status: res.status });
     }
 
-    const data = await response.json();
-    const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!responseText) {
-      return NextResponse.json({ error: "Empty response from Gemini" }, { status: 500 });
-    }
+    const data = await res.json();
+    const txt = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!txt) return NextResponse.json({ error: `Empty Gemini response. Finish: ${data.candidates?.[0]?.finishReason}` }, { status: 500 });
 
-    const cleaned = cleanJsonResponse(responseText);
-    const parsed = JSON.parse(cleaned);
+    let parsed: any;
+    try { parsed = JSON.parse(cleanJson(txt)); }
+    catch { return NextResponse.json({ error: `JSON parse failed: ${txt.substring(0, 100)}` }, { status: 500 }); }
+
     return NextResponse.json({ result: parsed });
   } catch (err: any) {
-    console.error("Gemini API route error:", err);
-    return NextResponse.json({ error: err.message || "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: err.message || "Server error" }, { status: 500 });
   }
 }

@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
     const { history, userApiKey } = body;
 
     const serverKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY || "";
-    const apiKey = (userApiKey && userApiKey.trim()) ? userApiKey.trim() : serverKey;
+    const apiKey = serverKey || (userApiKey && userApiKey.trim() ? userApiKey.trim() : "");
 
     if (!apiKey) {
       return NextResponse.json({ error: "No Gemini API key configured" }, { status: 400 });
@@ -27,16 +27,16 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify({
           contents,
           systemInstruction: {
-            parts: [{ text: "You are the AI mathematics and exam tutor for ExamSprint AI. If the student asks to explain or translate, do so accurately in that language." }]
+            parts: [{ text: "You are the AI mathematics and exam tutor for ExamSprint AI. Help students understand math solutions, explain concepts, give shortcuts, and translate to Bengali/Hindi if asked." }]
           },
-          generationConfig: { maxOutputTokens: 500, temperature: 0.7 }
+          generationConfig: { maxOutputTokens: 800, temperature: 0.7 }
         })
       }
     );
 
     if (!response.ok) {
       const errorBody = await response.text();
-      return NextResponse.json({ error: `Gemini API error: ${response.status} - ${errorBody}` }, { status: response.status });
+      return NextResponse.json({ error: `Gemini API error: ${response.status} - ${errorBody.substring(0, 200)}` }, { status: response.status });
     }
 
     const data = await response.json();
