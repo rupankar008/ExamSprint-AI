@@ -1,0 +1,244 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    /* DEFAULT / RAILWAY THEME */
+    --theme-bg: #090e1a;
+    --theme-card: rgba(16, 24, 48, 0.6);
+    --theme-border: rgba(59, 130, 246, 0.15);
+    --theme-text-primary: #f8fafc;
+    --theme-text-secondary: #94a3b8;
+    --theme-accent: #3b82f6;
+    --theme-accent-glow: rgba(59, 130, 246, 0.35);
+    --theme-gradient-start: #0f172a;
+    --theme-gradient-end: #070a13;
+    
+    /* Global presets */
+    --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  }
+
+  /* CUSTOM THEME DEFINITIONS OVERRIDES */
+  [data-exam-theme="railway"] {
+    --theme-bg: #090e1a;
+    --theme-card: rgba(16, 24, 48, 0.65);
+    --theme-border: rgba(59, 130, 246, 0.2);
+    --theme-text-primary: #f8fafc;
+    --theme-text-secondary: #94a3b8;
+    --theme-accent: #3b82f6;
+    --theme-accent-glow: rgba(59, 130, 246, 0.4);
+    --theme-gradient-start: #1d4ed8;
+    --theme-gradient-end: #0a0f24;
+  }
+
+  [data-exam-theme="police"] {
+    --theme-bg: #030712;
+    --theme-card: rgba(17, 24, 39, 0.7);
+    --theme-border: rgba(245, 158, 11, 0.2);
+    --theme-text-primary: #f9fafb;
+    --theme-text-secondary: #9ca3af;
+    --theme-accent: #eab308;
+    --theme-accent-glow: rgba(234, 179, 8, 0.35);
+    --theme-gradient-start: #1e3a8a;
+    --theme-gradient-end: #030712;
+  }
+
+  [data-exam-theme="ssc"] {
+    --theme-bg: #0f0a0a;
+    --theme-card: rgba(30, 20, 20, 0.65);
+    --theme-border: rgba(249, 115, 22, 0.2);
+    --theme-text-primary: #fffbeb;
+    --theme-text-secondary: #d97706;
+    --theme-accent: #f97316;
+    --theme-accent-glow: rgba(249, 115, 22, 0.4);
+    --theme-gradient-start: #c2410c;
+    --theme-gradient-end: #0f0a0a;
+  }
+
+  [data-exam-theme="banking"] {
+    --theme-bg: #022c22;
+    --theme-card: rgba(4, 47, 46, 0.65);
+    --theme-border: rgba(20, 184, 166, 0.25);
+    --theme-text-primary: #f0fdfa;
+    --theme-text-secondary: #99f6e4;
+    --theme-accent: #0d9488;
+    --theme-accent-glow: rgba(13, 148, 136, 0.4);
+    --theme-gradient-start: #042f2e;
+    --theme-gradient-end: #022c22;
+  }
+
+  [data-exam-theme="defence"] {
+    --theme-bg: #0e160e;
+    --theme-card: rgba(20, 30, 20, 0.7);
+    --theme-border: rgba(132, 204, 22, 0.2);
+    --theme-text-primary: #f7fee7;
+    --theme-text-secondary: #bef264;
+    --theme-accent: #84cc16;
+    --theme-accent-glow: rgba(132, 204, 22, 0.35);
+    --theme-gradient-start: #1b2e1b;
+    --theme-gradient-end: #0a0f0a;
+  }
+
+  body {
+    background-color: var(--theme-bg);
+    color: var(--theme-text-primary);
+    font-family: var(--font-sans);
+    transition: background-color 0.5s cubic-bezier(0.4, 0, 0.2, 1), color 0.5s ease;
+    overflow-x: hidden;
+  }
+}
+
+/* CUSTOM premium utilities */
+.glass-panel {
+  background: var(--theme-card);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--theme-border);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+}
+
+.glass-panel-hover {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.glass-panel-hover:hover {
+  border-color: var(--theme-accent);
+  box-shadow: 0 0 20px var(--theme-accent-glow);
+  transform: translateY(-2px);
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, #ffffff 30%, var(--theme-accent) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.shimmer-btn {
+  position: relative;
+  overflow: hidden;
+}
+.shimmer-btn::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -50%;
+  width: 200%;
+  height: 100%;
+  background: linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.3) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  transform: skewX(-25deg);
+  transition: 0.75s;
+}
+.shimmer-btn:hover::after {
+  left: 125%;
+}
+
+.aurora-bg {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  overflow: hidden;
+  opacity: 0.45;
+  filter: blur(80px);
+}
+
+.aurora-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  mix-blend-mode: screen;
+  animation: float-blob 20s infinite alternate ease-in-out;
+}
+
+@keyframes float-blob {
+  0% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  33% {
+    transform: translate(30px, -50px) scale(1.1);
+  }
+  66% {
+    transform: translate(-20px, 20px) scale(0.95);
+  }
+  100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--theme-border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--theme-accent);
+}
+
+/* Animations helper */
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Camera Live Scanner sweep animation */
+.animate-scan-line {
+  animation: scanLine 2s linear infinite;
+}
+
+@keyframes scanLine {
+  0% { top: 0%; opacity: 1; }
+  50% { opacity: 0.8; }
+  100% { top: 100%; opacity: 1; }
+}
+
+/* Print PDF styles */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  header, footer, nav, button, .print\:hidden {
+    display: none !important;
+  }
+  .printable-area {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .glass-panel {
+    background: white !important;
+    border: 1px solid #cbd5e1 !important;
+    color: black !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  canvas, video {
+    display: none !important;
+  }
+  .print\:block {
+    display: block !important;
+  }
+}
