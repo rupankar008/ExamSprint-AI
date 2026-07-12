@@ -173,8 +173,18 @@ if (isClient && isFirebaseConfigured && db) {
         if (val && val.id) fbBatches.push(val as Batch);
       });
       const local = getStored<Batch[]>('cloud_batches', INITIAL_BATCHES);
-      if (JSON.stringify(local) !== JSON.stringify(fbBatches)) {
-        setStored('cloud_batches', fbBatches);
+      const merged = [...fbBatches];
+      local.forEach(localBatch => {
+        if (localBatch && localBatch.id && !merged.some(b => b.id === localBatch.id)) {
+          merged.push(localBatch);
+          writeToFirestore('batches', localBatch.id, localBatch);
+        }
+      });
+      
+      const sortedLocal = [...local].sort((a, b) => (a.id || '').localeCompare(b.id || ''));
+      const sortedMerged = [...merged].sort((a, b) => (a.id || '').localeCompare(b.id || ''));
+      if (JSON.stringify(sortedLocal) !== JSON.stringify(sortedMerged)) {
+        setStored('cloud_batches', merged);
       }
     } catch (err) {
       console.warn("Batches onSnapshot error:", err);
@@ -187,13 +197,29 @@ if (isClient && isFirebaseConfigured && db) {
       const fbStuds: StudentProgress[] = [];
       snapshot.forEach((doc: any) => {
         const data = doc.data() as StudentProgress;
-        if (data && isRealRegisteredStudent(data.email, data.name)) {
-          fbStuds.push(data);
+        const email = data.email || doc.id;
+        const name = data.name || 'Student';
+        if (isRealRegisteredStudent(email, name)) {
+          fbStuds.push({
+            ...data,
+            email: email.toLowerCase(),
+            name: name
+          });
         }
       });
       const local = getStored<StudentProgress[]>('cloud_students', INITIAL_STUDENTS);
-      if (JSON.stringify(local) !== JSON.stringify(fbStuds)) {
-        setStored('cloud_students', fbStuds);
+      const merged = [...fbStuds];
+      local.forEach(localStud => {
+        if (localStud && localStud.email && !merged.some(s => s.email.toLowerCase() === localStud.email.toLowerCase())) {
+          merged.push(localStud);
+          writeToFirestore('students', localStud.email.toLowerCase(), localStud);
+        }
+      });
+      
+      const sortedLocal = [...local].sort((a, b) => (a.email || '').localeCompare(b.email || ''));
+      const sortedMerged = [...merged].sort((a, b) => (a.email || '').localeCompare(b.email || ''));
+      if (JSON.stringify(sortedLocal) !== JSON.stringify(sortedMerged)) {
+        setStored('cloud_students', merged);
       }
     } catch (err) {
       console.warn("Students onSnapshot error:", err);
@@ -209,8 +235,18 @@ if (isClient && isFirebaseConfigured && db) {
         if (val && val.id) fbHws.push(val as Homework);
       });
       const local = getStored<Homework[]>('cloud_homeworks', []);
-      if (JSON.stringify(local) !== JSON.stringify(fbHws)) {
-        setStored('cloud_homeworks', fbHws);
+      const merged = [...fbHws];
+      local.forEach(localHw => {
+        if (localHw && localHw.id && !merged.some(h => h.id === localHw.id)) {
+          merged.push(localHw);
+          writeToFirestore('homeworks', localHw.id, localHw);
+        }
+      });
+      
+      const sortedLocal = [...local].sort((a, b) => (a.id || '').localeCompare(b.id || ''));
+      const sortedMerged = [...merged].sort((a, b) => (a.id || '').localeCompare(b.id || ''));
+      if (JSON.stringify(sortedLocal) !== JSON.stringify(sortedMerged)) {
+        setStored('cloud_homeworks', merged);
       }
     } catch (err) {
       console.warn("Homeworks onSnapshot error:", err);
@@ -226,8 +262,18 @@ if (isClient && isFirebaseConfigured && db) {
         if (val && val.id) fbAnns.push(val as Announcement);
       });
       const local = getStored<Announcement[]>('cloud_announcements', []);
-      if (JSON.stringify(local) !== JSON.stringify(fbAnns)) {
-        setStored('cloud_announcements', fbAnns);
+      const merged = [...fbAnns];
+      local.forEach(localAnn => {
+        if (localAnn && localAnn.id && !merged.some(a => a.id === localAnn.id)) {
+          merged.push(localAnn);
+          writeToFirestore('announcements', localAnn.id, localAnn);
+        }
+      });
+      
+      const sortedLocal = [...local].sort((a, b) => (a.id || '').localeCompare(b.id || ''));
+      const sortedMerged = [...merged].sort((a, b) => (a.id || '').localeCompare(b.id || ''));
+      if (JSON.stringify(sortedLocal) !== JSON.stringify(sortedMerged)) {
+        setStored('cloud_announcements', merged);
       }
     } catch (err) {
       console.warn("Announcements onSnapshot error:", err);
@@ -243,8 +289,17 @@ if (isClient && isFirebaseConfigured && db) {
         if (d && d.email && d.batches) fbMap[d.email] = d.batches;
       });
       const local = getStored<Record<string, string[]>>('cloud_student_batches', {});
-      if (JSON.stringify(local) !== JSON.stringify(fbMap)) {
-        setStored('cloud_student_batches', fbMap);
+      const merged = { ...fbMap };
+      let changed = false;
+      Object.entries(local).forEach(([email, batches]) => {
+        if (email && batches && !merged[email]) {
+          merged[email] = batches;
+          changed = true;
+          writeToFirestore('student_batches', email.replace(/\./g, '_'), { email, batches });
+        }
+      });
+      if (changed || JSON.stringify(local) !== JSON.stringify(merged)) {
+        setStored('cloud_student_batches', merged);
       }
     } catch (err) {
       console.warn("Student_batches onSnapshot error:", err);
