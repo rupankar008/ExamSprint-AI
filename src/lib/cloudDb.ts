@@ -2,7 +2,7 @@
 
 import { UserProfile } from './localDb';
 import { db, isFirebaseConfigured } from './firebase';
-import { doc, setDoc, getDocs, collection, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, getDocs, collection, deleteDoc, onSnapshot } from 'firebase/firestore';
 
 export interface Batch {
   id: string;
@@ -74,14 +74,27 @@ const isClient = typeof window !== 'undefined';
 const INITIAL_STUDENTS: StudentProgress[] = [];
 const INITIAL_BATCHES: Batch[] = [];
 
+const MOCK_STUDENT_NAMES = [
+  'rohit murmu', 'ananya sen', 'priya das', 'subhasis chatterjee', 
+  'amit patel', 'sunita sharma', 'rohan mehta', 'vikram singh'
+];
+
+export function isRealRegisteredStudent(email: string, name: string): boolean {
+  if (!email || !name) return false;
+  const emailLower = email.toLowerCase();
+  const nameLower = name.toLowerCase();
+  if (emailLower === 'ankush.santra@examsprint.ai') return false;
+  if (MOCK_STUDENT_NAMES.includes(nameLower)) return false;
+  return true;
+}
+
 // Auto-migrate and filter out any remaining mock profiles from browser caches
 if (isClient) {
   try {
     const rawStuds = localStorage.getItem('cloud_students');
     if (rawStuds) {
       const parsed = JSON.parse(rawStuds) as any[];
-      const mockNames = ['rohit murmu', 'ananya sen', 'priya das', 'subhasis chatterjee', 'amit patel', 'sunita sharma', 'rohan mehta', 'vikram singh'];
-      const filtered = parsed.filter((s: any) => s && s.name && !mockNames.includes(s.name.toLowerCase()));
+      const filtered = parsed.filter((s: any) => s && s.name && isRealRegisteredStudent(s.email, s.name));
       if (filtered.length !== parsed.length) {
         localStorage.setItem('cloud_students', JSON.stringify(filtered));
       }
@@ -108,7 +121,13 @@ function getStored<T>(key: string, defaultValue: T): T {
 function setStored<T>(key: string, value: T) {
   if (!isClient) return;
   localStorage.setItem(key, JSON.stringify(value));
-  // Broadcast sync trigger locally
+  
+  // Dispatch local window sync event so the active tab's components receive it
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('examsprint-sync-event', { detail: { key } }));
+  }
+
+  // Broadcast sync trigger locally to other tabs
   try {
     const channel = new BroadcastChannel('examsprint-sync');
     channel.postMessage({ type: 'sync', key });
@@ -120,6 +139,12 @@ function setStored<T>(key: string, value: T) {
 // Global Sync Channel
 export function subscribeToCloudSync(callback: (key: string) => void): () => void {
   if (!isClient) return () => {};
+  
+  const handleSyncEvent = (event: any) => {
+    const key = event.detail?.key || event.data?.key;
+    callback(key);
+  };
+
   try {
     const channel = new BroadcastChannel('examsprint-sync');
     const listener = (event: MessageEvent) => {
@@ -128,60 +153,110 @@ export function subscribeToCloudSync(callback: (key: string) => void): () => voi
       }
     };
     channel.addEventListener('message', listener);
+    window.addEventListener('examsprint-sync-event', handleSyncEvent);
+
     return () => {
       channel.removeEventListener('message', listener);
       channel.close();
+      window.removeEventListener('examsprint-sync-event', handleSyncEvent);
     };
   } catch (e) {
-    return () => {};
+    window.addEventListener('examsprint-sync-event', handleSyncEvent);
+    return () => {
+      window.removeEventListener('examsprint-sync-event', handleSyncEvent);
+    };
   }
 }
 
 // ── Firebase Write-Through Cache Engine ───────────────────────────────────────
-// Asynchronously synchronizes LocalStorage state with Firebase Firestore if available.
+// Synchronizes LocalStorage state with Firebase Firestore in real-time.
 if (isClient && isFirebaseConfigured && db) {
-  // Pull initial snapshot from Firestore and update Cache
-  const syncFromFirestore = async () => {
+  // 1. Batches Real-time Listener
+  onSnapshot(collection(db, 'batches'), (snapshot) => {
     try {
-      // 1. Batches
-      const batchSnap = await getDocs(collection(db, 'batches'));
       const fbBatches: Batch[] = [];
-      batchSnap.forEach((doc: any) => fbBatches.push(doc.data() as Batch));
-      if (fbBatches.length > 0) setStored('cloud_batches', fbBatches);
-
-      // 2. Students
-      const studSnap = await getDocs(collection(db, 'students'));
-      const fbStuds: StudentProgress[] = [];
-      studSnap.forEach((doc: any) => fbStuds.push(doc.data() as StudentProgress));
-      if (fbStuds.length > 0) setStored('cloud_students', fbStuds);
-
-      // 3. Homeworks
-      const hwSnap = await getDocs(collection(db, 'homeworks'));
-      const fbHws: Homework[] = [];
-      hwSnap.forEach((doc: any) => fbHws.push(doc.data() as Homework));
-      setStored('cloud_homeworks', fbHws);
-
-      // 4. Announcements
-      const annSnap = await getDocs(collection(db, 'announcements'));
-      const fbAnns: Announcement[] = [];
-      annSnap.forEach((doc: any) => fbAnns.push(doc.data() as Announcement));
-      setStored('cloud_announcements', fbAnns);
-
-      // 5. Assignments Map
-      const mapSnap = await getDocs(collection(db, 'student_batches'));
-      const fbMap: Record<string, string[]> = {};
-      mapSnap.forEach((doc: any) => {
-        const d = doc.data();
-        if (d.email && d.batches) fbMap[d.email] = d.batches;
+      snapshot.forEach((doc: any) => {
+        const val = doc.data();
+        if (val && val.id) fbBatches.push(val as Batch);
       });
-      if (Object.keys(fbMap).length > 0) setStored('cloud_student_batches', fbMap);
-
+      const local = getStored<Batch[]>('cloud_batches', INITIAL_BATCHES);
+      if (JSON.stringify(local) !== JSON.stringify(fbBatches)) {
+        setStored('cloud_batches', fbBatches);
+      }
     } catch (err) {
-      console.warn("Firestore collection sync error:", err);
+      console.warn("Batches onSnapshot error:", err);
     }
-  };
+  });
 
-  syncFromFirestore();
+  // 2. Students Real-time Listener (Filtering mock and teacher accounts)
+  onSnapshot(collection(db, 'students'), (snapshot) => {
+    try {
+      const fbStuds: StudentProgress[] = [];
+      snapshot.forEach((doc: any) => {
+        const data = doc.data() as StudentProgress;
+        if (data && isRealRegisteredStudent(data.email, data.name)) {
+          fbStuds.push(data);
+        }
+      });
+      const local = getStored<StudentProgress[]>('cloud_students', INITIAL_STUDENTS);
+      if (JSON.stringify(local) !== JSON.stringify(fbStuds)) {
+        setStored('cloud_students', fbStuds);
+      }
+    } catch (err) {
+      console.warn("Students onSnapshot error:", err);
+    }
+  });
+
+  // 3. Homeworks Real-time Listener
+  onSnapshot(collection(db, 'homeworks'), (snapshot) => {
+    try {
+      const fbHws: Homework[] = [];
+      snapshot.forEach((doc: any) => {
+        const val = doc.data();
+        if (val && val.id) fbHws.push(val as Homework);
+      });
+      const local = getStored<Homework[]>('cloud_homeworks', []);
+      if (JSON.stringify(local) !== JSON.stringify(fbHws)) {
+        setStored('cloud_homeworks', fbHws);
+      }
+    } catch (err) {
+      console.warn("Homeworks onSnapshot error:", err);
+    }
+  });
+
+  // 4. Announcements Real-time Listener
+  onSnapshot(collection(db, 'announcements'), (snapshot) => {
+    try {
+      const fbAnns: Announcement[] = [];
+      snapshot.forEach((doc: any) => {
+        const val = doc.data();
+        if (val && val.id) fbAnns.push(val as Announcement);
+      });
+      const local = getStored<Announcement[]>('cloud_announcements', []);
+      if (JSON.stringify(local) !== JSON.stringify(fbAnns)) {
+        setStored('cloud_announcements', fbAnns);
+      }
+    } catch (err) {
+      console.warn("Announcements onSnapshot error:", err);
+    }
+  });
+
+  // 5. Assignments Map Real-time Listener
+  onSnapshot(collection(db, 'student_batches'), (snapshot) => {
+    try {
+      const fbMap: Record<string, string[]> = {};
+      snapshot.forEach((doc: any) => {
+        const d = doc.data();
+        if (d && d.email && d.batches) fbMap[d.email] = d.batches;
+      });
+      const local = getStored<Record<string, string[]>>('cloud_student_batches', {});
+      if (JSON.stringify(local) !== JSON.stringify(fbMap)) {
+        setStored('cloud_student_batches', fbMap);
+      }
+    } catch (err) {
+      console.warn("Student_batches onSnapshot error:", err);
+    }
+  });
 }
 
 // Firestore async write helpers
@@ -239,7 +314,8 @@ export const cloudDb = {
 
   // STUDENTS
   getStudents: (): StudentProgress[] => {
-    return getStored<StudentProgress[]>('cloud_students', INITIAL_STUDENTS);
+    const all = getStored<StudentProgress[]>('cloud_students', INITIAL_STUDENTS);
+    return all.filter(s => s && isRealRegisteredStudent(s.email, s.name));
   },
   saveStudent: (student: StudentProgress) => {
     const students = cloudDb.getStudents();

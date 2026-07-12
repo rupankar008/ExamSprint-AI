@@ -275,7 +275,7 @@ export default function TeacherPortal({ profile, onLogout }: TeacherPortalProps)
                 <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
                   {homeworks.map((hw) => {
                     const assignedStudents = Object.entries(studentBatchesMap)
-                      .filter(([_, batchIds]) => batchIds.includes(hw.batchId)).length;
+                      .filter(([email, batchIds]) => batchIds.includes(hw.batchId) && students.some(s => s.email.toLowerCase() === email.toLowerCase())).length;
                     const completedCount = hw.completedBy.length;
                     const completionPercent = assignedStudents > 0 ? Math.round((completedCount / assignedStudents) * 100) : 0;
                     
@@ -343,8 +343,8 @@ export default function TeacherPortal({ profile, onLogout }: TeacherPortalProps)
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {batches.map((batch) => {
               // Count assigned students
-              const studentCount = Object.values(studentBatchesMap)
-                .filter(ids => ids.includes(batch.id)).length;
+              const studentCount = Object.entries(studentBatchesMap)
+                .filter(([email, ids]) => ids.includes(batch.id) && students.some(s => s.email.toLowerCase() === email.toLowerCase())).length;
                 
               return (
                 <div key={batch.id} className="glass-panel p-5 rounded-2xl space-y-4 border-t-4" style={{ borderTopColor: batch.color }}>

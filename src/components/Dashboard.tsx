@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from './AppContext';
 import { getExamConfig, EXAM_LIST } from '../lib/syllabus';
-import { cloudDb } from '../lib/cloudDb';
+import { cloudDb, subscribeToCloudSync, StudentProgress } from '../lib/cloudDb';
 import { getRandomQuote, Quote } from '../lib/quotes';
 import { solveMathOffline } from '../lib/mathEngine';
 import { 
@@ -21,6 +21,15 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
   const [examSelectorOpen, setExamSelectorOpen] = useState(false);
   const [solvedChallenge, setSolvedChallenge] = useState(false);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
+  const [activeStudents, setActiveStudents] = useState<StudentProgress[]>([]);
+
+  useEffect(() => {
+    setActiveStudents(cloudDb.getStudents());
+    const unsubscribe = subscribeToCloudSync(() => {
+      setActiveStudents(cloudDb.getStudents());
+    });
+    return () => unsubscribe();
+  }, []);
   
   const examConfig = profile ? getExamConfig(profile.targetExam) : EXAM_LIST[0];
 
@@ -151,8 +160,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
     }
   };
 
-  // Get active registered students from virtual cloud DB to create dynamic rankings
-  const activeStudents = cloudDb.getStudents();
+  // Get active registered students from virtual cloud DB state to create dynamic rankings
   
   // Format dynamic leaderboard ranking
   const mockLeaderboard = activeStudents.map((stud) => {
