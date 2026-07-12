@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { UserProfile, getProfile, saveProfile, getStreakLog, addStreakDay, initDb } from '../lib/localDb';
 import { getExamConfig } from '../lib/syllabus';
+import { cloudDb } from '../lib/cloudDb';
 
 interface AppContextType {
   profile: UserProfile | null;
@@ -85,6 +86,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const updateProfile = async (newProfile: UserProfile) => {
     setProfile(newProfile);
     await saveProfile(newProfile);
+
+    // Sync profile to cloud database if it is a student role
+    if (sessionEmail && newProfile.role !== 'teacher') {
+      cloudDb.registerUserProfile(newProfile, sessionEmail);
+    }
     
     // Dynamically update document themes
     let theme = newProfile.themePreference;

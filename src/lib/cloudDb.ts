@@ -74,17 +74,10 @@ const isClient = typeof window !== 'undefined';
 const INITIAL_STUDENTS: StudentProgress[] = [];
 const INITIAL_BATCHES: Batch[] = [];
 
-const MOCK_STUDENT_NAMES = [
-  'rohit murmu', 'ananya sen', 'priya das', 'subhasis chatterjee', 
-  'amit patel', 'sunita sharma', 'rohan mehta', 'vikram singh'
-];
-
 export function isRealRegisteredStudent(email: string, name: string): boolean {
   if (!email || !name) return false;
   const emailLower = email.toLowerCase();
-  const nameLower = name.toLowerCase();
   if (emailLower === 'ankush.santra@examsprint.ai') return false;
-  if (MOCK_STUDENT_NAMES.includes(nameLower)) return false;
   return true;
 }
 
@@ -337,9 +330,9 @@ export const cloudDb = {
       email: email.toLowerCase(),
       name: profile.name,
       targetExam: profile.targetExam,
-      level: existing?.level || 1,
-      xp: existing?.xp || 0,
-      streakCount: existing?.streakCount || 1,
+      level: profile.level !== undefined ? profile.level : (existing?.level || 1),
+      xp: profile.xp !== undefined ? profile.xp : (existing?.xp || 0),
+      streakCount: profile.streakCount !== undefined ? profile.streakCount : (existing?.streakCount || 1),
       questionsSolved: existing?.questionsSolved || 0,
       aiUsageCount: existing?.aiUsageCount || 0,
       accuracy: existing?.accuracy || 90,
@@ -348,8 +341,8 @@ export const cloudDb = {
       strongestSubject: profile.strongSubject || 'General Intelligence',
       homeworkCompletionRate: existing?.homeworkCompletionRate || 0,
       studyHoursPerDay: profile.dailyHours || 4,
-      district: (profile as any).district || 'Kolkata',
-      state: (profile as any).state || 'West Bengal',
+      district: (profile as any).district || existing?.district || 'Kolkata',
+      state: (profile as any).state || existing?.state || 'West Bengal',
       highestQualification: profile.qualification || 'Graduate',
       registrationDate: existing?.registrationDate || new Date().toISOString().split('T')[0],
       lastActiveDate: new Date().toISOString().split('T')[0]
